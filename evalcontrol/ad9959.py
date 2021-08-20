@@ -14,7 +14,7 @@ class AD9959(object):
     """
     
     def __init__(self, vid=0x0456, pid=0xee25, port_numbers=None, bus_number=None, auto_update=True,
-            rfclk=50e6, clkmtp=10, channel=0):
+            rfclk=50e6, clkmtp=10, channel=0, address=1):
         """Initializes a handler for the usb controler.
 
         If more than one AD9959 are connected via USB, they are in principle indistinguishable. The only way
@@ -33,8 +33,11 @@ class AD9959(object):
         clkmtp: int
             Clock multiplier. The reference clock signal is internally multiplied by this value to generate
             the system clock frequency.
+        address: int
+            usb address. exapmle 1,2,...
         """
         self.channel = channel
+        self.address = address
 
         # find all usb devices with matching vid/pid
         devs = list(usb.core.find(idVendor=vid, idProduct=pid, find_all=True))
@@ -45,7 +48,9 @@ class AD9959(object):
         if len(devs) > 1:
             assert port_numbers is not None and bus_number is not None, 'More than one AD9959 present. Specify USB bus and port numbers!'
             for d in devs:
-                if d.port_numbers == port_numbers and d.bus == bus_number:
+                print(f'bus {d.bus}, port_numbers {d.port_numbers}, address {d.address}')
+            for d in devs:
+                if d.port_numbers == port_numbers and d.bus == bus_number and d.address == address:
                     dev = d
                     break
             assert dev is not None, 'No matching device was found. Check bus and port numbers!'
@@ -717,6 +722,50 @@ class AD9959(object):
             print(frequency_word)
             print(self._read_from_register(delta_word_registers[i], 32))
         return
+
+    def set_amplitude_control(self, enable, scale=1, channels=None):
+        """About the amplitude control register,set enable flag and amplitude scale.
+        
+        :enable: bool
+            enable amplitude scale factor
+        :scale: float
+            amplitude goes to be scale/1 
+        :channel: int or list
+            channel ID or list of channel IDs that are selected
+        """
+
+        if channels is None:
+            channels = self.channel
+        if np.issubdtype(type(channels), np.integer):
+            channels = [channels]
+        channels.sort()
+
+        assert 0 <= scale <= 1
+
+        self._channel_select(channels)
+        
+        # construct amplitude control registor word
+        acr = [0]*24
+        acr[11] = int(enable)
+        asf_bin = bin(round(scale*(2**10-1))).lstrip('0b')
+        if len(asf_bin) < 10:
+            asf_bin = (10 - len(asf_bin)) * '0' + asf_bin
+
+        acr[14:24] = list(map(int, asf_bin))
+        acr_word = ''.join(' 0' + str(b) for b in acr)
+        acr_word = acr_word[1:]
+
+        # write the acr word to the register
+        self._write_to_dds_register(0x06, acr_word)
+
+        # update I/O
+        self._load_IO()
+        if self.auto_update:
+            self._update_IO()
+
+            
+            
+            
 
 class AD9959dev(AD9959):
     def __init__(self, experiment, *args, **kwargs):

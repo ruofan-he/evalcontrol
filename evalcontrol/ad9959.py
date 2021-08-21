@@ -59,7 +59,8 @@ class AD9959(object):
             dev = devs[0]
 
         dev.set_configuration()
-        cnf = dev.configurations()[0]
+        # cnf = dev.configurations()[0] # obsolete
+        cnf = dev.get_active_configuration() # new
         intf = cnf[(0,0)]
         self.dev = dev
 
@@ -723,6 +724,51 @@ class AD9959(object):
             print(self._read_from_register(delta_word_registers[i], 32))
         return
 
+    def set_amplitude_control_obsolete(self, enable, scale=1, channels=None):
+        """About the amplitude control register,set enable flag and amplitude scale.
+        Not sure to take effect.
+        
+        :enable: bool
+            enable amplitude scale factor
+        :scale: float
+            amplitude goes to be scale/1 
+        :channel: int or list
+            channel ID or list of channel IDs that are selected
+        """
+
+        if channels is None:
+            channels = self.channel
+        if np.issubdtype(type(channels), np.integer):
+            channels = [channels]
+        channels.sort()
+
+        assert 0 <= scale <= 1
+
+
+        for ch in channels:
+            self._channel_select(ch)
+
+            # read current amplitude control registor word
+            acr = list(self._read_from_register(0x06, 24))
+
+            # construct amplitude control registor word
+            acr[11] = int(enable)
+            asf_bin = bin(round(scale*(2**10-1))).lstrip('0b')
+            if len(asf_bin) < 10:
+                asf_bin = (10 - len(asf_bin)) * '0' + asf_bin
+
+            acr[14:24] = list(map(int, asf_bin))
+            acr_word = ''.join(' 0' + str(b) for b in acr)
+            acr_word = acr_word[1:]
+
+            # write the acr word to the register
+            self._write_to_dds_register(0x06, acr_word)
+
+        # update I/O
+        self._load_IO()
+        if self.auto_update:
+            self._update_IO()
+
     def set_amplitude_control(self, enable, scale=1, channels=None):
         """About the amplitude control register,set enable flag and amplitude scale.
         
@@ -762,7 +808,6 @@ class AD9959(object):
         self._load_IO()
         if self.auto_update:
             self._update_IO()
-
             
             
             

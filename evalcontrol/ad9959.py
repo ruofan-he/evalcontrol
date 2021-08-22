@@ -809,7 +809,54 @@ class AD9959(object):
         if self.auto_update:
             self._update_IO()
             
-            
+    def set_frequency_integer(self, frequency_int, channel=None, channel_word=0):
+        """Sets a new frequency in integer for a given channel.
+        frequency = sys_clk * frequency_int / (2**32 - 1)
+
+        :frequency_int: int
+            The new frequency in integer. Should not exceed `system_clock_frequency`.
+        :channel: int or seq
+            Channel(s) for which the frequency should be set.
+        :channel_word: int
+            Determines the channel_word to which the frequency is written. Each channel has 16
+            channel_words that can be used.
+
+        """
+
+        frequency = self.system_clock_frequency * frequency_int/ (2**32 - 1)
+        if channel is None:
+            channel = self.channel
+        assert frequency <= self.system_clock_frequency, ("Frequency should not"
+                + " exceed system clock frequency! System clock frequency is {0}Hz".format(self.system_clock_frequency))
+
+        assert channel_word < 16, ("Channel word cannot exceed 15, input was {0}".format(channel_word))
+
+        # select the chosen channels
+        self._channel_select(channel)
+
+        # calculate the fraction of the full frequency
+        fraction_bin = bin(frequency_int).lstrip('0b') # full range are 32 bit
+        if len(fraction_bin) < 32:
+            fraction_bin = (32-len(fraction_bin)) * '0' + fraction_bin
+        closest_possible_value = (int(fraction_bin, base=2)/(2**32 -1) *
+                                    self.system_clock_frequency)
+        print('Setting frequency of channel {1}:{2} to closest possible value {0}MHz'.format(
+                                                        closest_possible_value/1e6, channel, channel_word))
+
+        # set the frequency word in the frequency register
+        frequency_word = ''.join(' 0' + b for b in fraction_bin)
+        frequency_word = frequency_word[1:]
+        if channel_word == 0:
+            self._write_to_dds_register(0x04, frequency_word)
+        else:
+            register = channel_word - 1 + 0x0A
+            self._write_to_dds_register(register, frequency_word)
+
+
+        # load and update I/O
+        self._load_IO()
+        if self.auto_update:
+            self._update_IO()
             
 
 class AD9959dev(AD9959):
